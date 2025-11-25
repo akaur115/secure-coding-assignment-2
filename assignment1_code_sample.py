@@ -1,69 +1,82 @@
+from __future__ import annotations
+
 import os
 import smtplib
 import ssl
-import pymysql
 from email.message import EmailMessage
+from typing import Optional
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
+
+import pymysql
 
 
-# Database credentials should come from environment variables
 DB_HOST = os.getenv("DB_HOST", "")
 DB_USER = os.getenv("DB_USER", "")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "mydatabase")
 
-# Secure HTTPS API endpoint
 API_URL = "https://secure-api.example.com/get-data"
 
 
 def get_user_input() -> str:
-    """Prompt user for their name safely."""
-    name = input("Enter your name: ").strip()
-    return name
+    """
+    Prompt the user for their name.
+    Returns:
+        str: Cleaned user input.
+    """
+    return input("Enter your name: ").strip()
 
 
 def send_email(to_email: str, subject: str, body: str) -> None:
     """
     Send an email using secure SMTP.
-    Replaces insecure os.system() mail command.
+
+    Args:
+        to_email (str): Recipient email address.
+        subject (str): Email subject.
+        body (str): Email content.
     """
+    msg = EmailMessage()
+    msg["From"] = "noreply@example.com"
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    context = ssl.create_default_context()
+    smtp_user = "noreply@example.com"
+    smtp_pass = os.getenv("SMTP_PASSWORD", "")
+
     try:
-        msg = EmailMessage()
-        msg["From"] = "noreply@example.com"
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.set_content(body)
-
-        context = ssl.create_default_context()
-
-        smtp_user = "noreply@example.com"
-        smtp_pass = os.getenv("SMTP_PASSWORD", "")
-
         with smtplib.SMTP_SSL("smtp.example.com", 465, context=context) as server:
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
-
-    except Exception as error:
-        print(f"Email send error: {error}")
+    except OSError as error:
+        print(f"Email error: {error}")
 
 
 def get_data() -> str:
-    """Fetch data from secure HTTPS API with proper error handling."""
-    try:
-        req = Request(API_URL, headers={"User-Agent": "SecureClient"})
-        with urlopen(req, timeout=10) as response:
-            return response.read().decode("utf-8")
+    """
+    Fetch data from a secure HTTPS API.
 
+    Returns:
+        str: API response data or empty string on error.
+    """
+    try:
+        request = Request(API_URL, headers={"User-Agent": "SecureClient"})
+        with urlopen(request, timeout=10) as response:
+            return response.read().decode("utf-8")
     except (HTTPError, URLError, TimeoutError) as error:
-        print(f"Error fetching API data: {error}")
+        print(f"API fetch error: {error}")
         return ""
 
 
 def save_to_db(data: str) -> None:
     """
-    Save data to MySQL database using parameterized SQL
-    to prevent SQL injection.
+    Save data to a MySQL database securely using parameterized SQL.
+
+    Args:
+        data (str): Data to insert.
     """
     try:
         connection = pymysql.connect(
@@ -78,28 +91,25 @@ def save_to_db(data: str) -> None:
             query = "INSERT INTO mytable (column1, column2) VALUES (%s, %s)"
             cursor.execute(query, (data, "Another Value"))
             connection.commit()
-
     except pymysql.MySQLError as error:
         print(f"Database error: {error}")
-
     finally:
-        if "connection" in locals():
+        try:
             connection.close()
+        except NameError:
+            pass
 
 
 def main() -> None:
-    """Main application entry point."""
+    """Main application entrypoint."""
     user_value = get_user_input()
     api_data = get_data()
 
     if api_data:
         save_to_db(api_data)
 
-    send_email(
-        "admin@example.com",
-        "User Input Received",
-        f"User entered: {user_value}",
-    )
+    email_body = f"User entered: {user_value}"
+    send_email("admin@example.com", "User Input Received", email_body)
 
 
 if __name__ == "__main__":
